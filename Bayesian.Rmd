@@ -1,0 +1,103 @@
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(janitor)
+library(spatstat)
+library(spdep)
+library(RColorBrewer)
+library(tmaptools)
+library(here)
+```
+
+```{r}
+crash <- read_csv(here("Traffic_Crashes_-_Crashes_20240326.csv")) %>% clean_names() 
+vehicle <- read_csv(here("Traffic_Crashes_-_Vehicles_20240326.csv")) %>% clean_names()
+```
+```{r}
+vehicle$crash_unit_id <- as.character(vehicle$crash_unit_id)
+vehicle_crash <- vehicle %>%
+  left_join(crash, by = c("crash_record_id" = "crash_record_id")) %>%
+  dplyr::select(crash_record_id, crash_date.x, latitude, longitude, boundaries_zip_codes) %>% 
+  dplyr::filter(str_detect(crash_date.x, "2020"))
+
+```
+
+```{r}
+
+# install.packages("tibble")
+
+# Load the necessary libraries
+library(tidycensus)
+library(tibble)
+
+census_api_key("e9398047fdb24c73bccac08f61c6ca6a9756d02f", install = TRUE, overwrite=TRUE)
+
+
+chicago_data_income <- get_acs(geography = "tract", 
+                        variables = c(median_income = "B19013_001"),
+                        year = 2020,
+                        state = "IL", 
+                        geometry = TRUE,
+                        county = "Cook",
+                        survey = "acs5") 
+chicago_data_population <- get_acs(geography = "tract", 
+                        variables = "B01001_001",
+                        year = 2020,
+                        state = "IL", 
+                        geometry = FALSE,
+                        county = "Cook",
+                        survey = "acs5") 
+ 
+chicago_census <- chicago_data_income %>% 
+  left_join(., chicago_data_population, by = c("GEOID" = "GEOID")) %>% 
+   rename(., income = estimate.x) %>% 
+  rename(., population = estimate.y) %>% 
+  dplyr::select(GEOID, income, population, geometry)
+
+
+```
+
+
+```{r}
+shape <- st_read(here("Boundaries - Census Tracts - 2010", "geo_export_2627f9f9-23c0-4a92-92b0-2e457f5a6117.shp"))
+qtm(shape)
+```
+
+
+```{r}
+traffic_volume <- read_csv(here('nanda_trfvolni_tract_1963-2019_01P.csv')) %>% 
+                             clean_names()
+latest_year_df <- traffic_volume %>%
+  group_by(tract_fips10) %>%
+  filter(year == max(year)) %>%
+  dplyr::ungroup()
+
+traffic_volume_cleaned <- latest_year_df %>% 
+  dplyr::select(tract_fips10, year, mean_traffic) 
+```
+
+```{r}
+traffic_chicago <- shape %>% 
+  left_join(.,traffic_volume_cleaned, by = c("geoid10"="tract_fips10") ) %>% 
+  dplyr::select(year, geoid10, mean_traffic, geometry)
+```
+
+```{r, eval=FALSE}
+number_of_nas <- sum(is.na(combined_data$income))
+
+# print the result
+print(number_of_nas)
+
+```
+
+```{r}
+combined_data <- traffic_chicago %>% 
+  st_drop_geometry %>% 
+  left_join(., chicago_census, by = c('geoid10'='GEOID')) %>% 
+  select(-geometry) 
+```
+
+
+
+
